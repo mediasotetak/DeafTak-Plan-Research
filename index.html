@@ -18,7 +18,7 @@
     <!-- Header Section -->
     <header class="bg-indigo-900 text-white shadow-lg">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-3">
                     <div class="bg-white p-2 rounded-lg text-indigo-900 shadow">
                         <i class="fa-solid fa-graduation-cap text-3xl"></i>
@@ -28,16 +28,20 @@
                         <p class="text-indigo-200 text-sm">โรงเรียนโสตศึกษาจังหวัดตาก (ภาคเรียนที่ 2/2569)</p>
                     </div>
                 </div>
-                
-                <button onclick="toggleSettingsModal()" class="inline-flex items-center justify-center px-4 py-2 bg-indigo-800 hover:bg-indigo-700 text-indigo-100 rounded-lg text-sm font-medium transition border border-indigo-700 shadow-sm">
-                    <i class="fa-solid fa-link mr-2"></i> ตั้งค่าเชื่อมต่อ Google Sheets
-                </button>
             </div>
         </div>
     </header>
 
     <!-- Main Content Container -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
+
+        <!-- Loading / Cache Banner Status -->
+        <div id="status-banner" class="hidden mb-4 p-3 rounded-lg text-xs font-medium flex items-center justify-between transition-all">
+            <div id="status-text" class="flex items-center">
+                <!-- Status icon & text injected by JS -->
+            </div>
+            <span id="cache-time" class="text-[11px] opacity-75"></span>
+        </div>
 
         <!-- Navigation Tabs -->
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 mb-6 p-2">
@@ -187,6 +191,15 @@
                 </div>
                 <p class="text-slate-600 font-medium">ไม่พบข้อมูลการส่งงานตามเงื่อนไข</p>
             </div>
+
+            <!-- Loading Spinner State inside table -->
+            <div id="loading-state" class="p-12 text-center">
+                <div class="inline-flex items-center justify-center space-x-2 text-indigo-600 mb-2">
+                    <i class="fa-solid fa-circle-notch fa-spin text-3xl"></i>
+                </div>
+                <p class="text-slate-600 font-medium text-sm">กำลังโหลดข้อมูลจาก Google Sheets...</p>
+                <p class="text-xs text-slate-400 mt-1">โปรดรอสักครู่ ระบบกำลังประมวลผลข้อมูลล่าสุด</p>
+            </div>
         </div>
 
         <!-- Teacher Status List Section -->
@@ -303,11 +316,16 @@
 
         // Fixed Term
         const CURRENT_TERM = "ภาคเรียนที่ 2/2569";
+        const CACHE_KEY_PLAN = 'cache_plan_data_v2';
+        const CACHE_KEY_RESEARCH = 'cache_research_data_v2';
+        const CACHE_KEY_TIME = 'cache_time_v2';
+        const CACHE_EXPIRY_MS = 5 * 60 * 1000; // 5 mins cache
 
         // State Variables
         let currentTab = 'plan'; 
         let lessonPlansData = [];
         let researchDataList = [];
+        let isLoading = false;
 
         // Initialize App
         window.addEventListener('DOMContentLoaded', () => {
@@ -316,35 +334,37 @@
         });
 
         function initFilterDropdowns() {
-            // Teacher Dropdown
             const teacherSelect = document.getElementById('filter-teacher');
-            ALL_TEACHERS.forEach(t => {
-                const opt = document.createElement('option');
-                opt.value = t;
-                opt.textContent = t;
-                teacherSelect.appendChild(opt);
-            });
+            if (teacherSelect) {
+                ALL_TEACHERS.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = t;
+                    teacherSelect.appendChild(opt);
+                });
+            }
 
-            // Group Dropdown
             const groupSelect = document.getElementById('filter-group');
-            SUBJECT_GROUPS.forEach(g => {
-                const opt = document.createElement('option');
-                opt.value = g;
-                opt.textContent = g;
-                groupSelect.appendChild(opt);
-            });
+            if (groupSelect) {
+                SUBJECT_GROUPS.forEach(g => {
+                    const opt = document.createElement('option');
+                    opt.value = g;
+                    opt.textContent = g;
+                    groupSelect.appendChild(opt);
+                });
+            }
 
-            // Student Type Dropdown
             const studentSelect = document.getElementById('filter-student');
-            STUDENT_TYPES.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = s;
-                opt.textContent = s;
-                studentSelect.appendChild(opt);
-            });
+            if (studentSelect) {
+                STUDENT_TYPES.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    opt.textContent = s;
+                    studentSelect.appendChild(opt);
+                });
+            }
         }
 
-        // Switch between Tabs
         function switchTab(type) {
             currentTab = type;
             const tabPlan = document.getElementById('tab-plan');
@@ -353,21 +373,20 @@
             const thDynamic = document.getElementById('th-dynamic');
 
             if (type === 'plan') {
-                tabPlan.className = "py-3 px-4 text-center rounded-lg font-medium text-base transition flex items-center justify-center space-x-2 bg-indigo-50 text-indigo-700 font-semibold shadow-sm";
-                tabResearch.className = "py-3 px-4 text-center rounded-lg font-medium text-base transition flex items-center justify-center space-x-2 text-slate-600 hover:bg-slate-100";
-                titleElement.textContent = "รายการแผนการจัดการเรียนรู้";
-                thDynamic.textContent = "รหัสวิชา / ชื่อรายวิชา / ชั้น";
+                if (tabPlan) tabPlan.className = "py-3 px-4 text-center rounded-lg font-medium text-base transition flex items-center justify-center space-x-2 bg-indigo-50 text-indigo-700 font-semibold shadow-sm";
+                if (tabResearch) tabResearch.className = "py-3 px-4 text-center rounded-lg font-medium text-base transition flex items-center justify-center space-x-2 text-slate-600 hover:bg-slate-100";
+                if (titleElement) titleElement.textContent = "รายการแผนการจัดการเรียนรู้";
+                if (thDynamic) thDynamic.textContent = "รหัสวิชา / ชื่อรายวิชา / ชั้น";
             } else {
-                tabResearch.className = "py-3 px-4 text-center rounded-lg font-medium text-base transition flex items-center justify-center space-x-2 bg-indigo-50 text-indigo-700 font-semibold shadow-sm";
-                tabPlan.className = "py-3 px-4 text-center rounded-lg font-medium text-base transition flex items-center justify-center space-x-2 text-slate-600 hover:bg-slate-100";
-                titleElement.textContent = "รายการวิจัยในชั้นเรียน";
-                thDynamic.textContent = "ชื่อวิจัยในชั้นเรียน";
+                if (tabResearch) tabResearch.className = "py-3 px-4 text-center rounded-lg font-medium text-base transition flex items-center justify-center space-x-2 bg-indigo-50 text-indigo-700 font-semibold shadow-sm";
+                if (tabPlan) tabPlan.className = "py-3 px-4 text-center rounded-lg font-medium text-base transition flex items-center justify-center space-x-2 text-slate-600 hover:bg-slate-100";
+                if (titleElement) titleElement.textContent = "รายการวิจัยในชั้นเรียน";
+                if (thDynamic) thDynamic.textContent = "ชื่อวิจัยในชั้นเรียน";
             }
 
             renderCurrentView();
         }
 
-        // Render Data Table & Summary
         function renderCurrentView() {
             const activeData = currentTab === 'plan' ? lessonPlansData : researchDataList;
             const filteredData = filterDataList(activeData);
@@ -380,13 +399,25 @@
         function renderTable(filteredData) {
             const tbody = document.getElementById('table-body');
             const emptyState = document.getElementById('empty-state');
+            const loadingState = document.getElementById('loading-state');
+            
+            if (!tbody) return;
             tbody.innerHTML = '';
 
+            if (isLoading) {
+                if (loadingState) loadingState.classList.remove('hidden');
+                if (emptyState) emptyState.classList.add('hidden');
+                return;
+            }
+
+            if (loadingState) loadingState.classList.add('hidden');
+
             if (filteredData.length === 0) {
-                emptyState.classList.remove('hidden');
+                if (emptyState) emptyState.classList.remove('hidden');
             } else {
-                emptyState.classList.add('hidden');
+                if (emptyState) emptyState.classList.add('hidden');
                 
+                const fragment = document.createDocumentFragment();
                 filteredData.forEach((item, index) => {
                     const tr = document.createElement('tr');
                     tr.className = "bg-white border-b hover:bg-slate-50 transition";
@@ -403,7 +434,7 @@
                         <td class="px-4 py-3 text-sm font-medium text-indigo-950">${dynamicContent || '-'}</td>
                         <td class="px-4 py-3 text-center">
                             ${item.fileUrl && item.fileUrl !== '-' && item.fileUrl.startsWith('http') ? 
-                                `<a href="${item.fileUrl}" target="_blank" class="inline-flex items-center px-2.5 py-1 bg-red-50 text-red-600 hover:bg-red-100 rounded text-xs font-medium border border-red-200 transition">
+                                `<a href="${item.fileUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center px-2.5 py-1 bg-red-50 text-red-600 hover:bg-red-100 rounded text-xs font-medium border border-red-200 transition">
                                     <i class="fa-solid fa-file-pdf mr-1"></i> เปิดดูไฟล์
                                  </a>` : 
                                 `<span class="text-xs text-slate-400">ไม่มีไฟล์</span>`
@@ -411,17 +442,19 @@
                         </td>
                         <td class="px-4 py-3 text-xs text-slate-500">${item.note || '-'}</td>
                     `;
-                    tbody.appendChild(tr);
+                    fragment.appendChild(tr);
                 });
+                tbody.appendChild(fragment);
             }
         }
 
-        // Render Status Checklist Grid for All 46 Teachers
         function renderTeacherStatusGrid(activeData) {
             const grid = document.getElementById('teacher-status-grid');
+            if (!grid) return;
             grid.innerHTML = '';
 
             const submittedTeachers = new Set(activeData.map(d => (d.teacher || '').trim()));
+            const fragment = document.createDocumentFragment();
 
             ALL_TEACHERS.forEach(teacher => {
                 const hasSubmitted = submittedTeachers.has(teacher.trim());
@@ -437,16 +470,21 @@
                         : `<span class="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px] font-medium whitespace-nowrap">ยังไม่ส่ง</span>`
                     }
                 `;
-                grid.appendChild(item);
+                fragment.appendChild(item);
             });
+            grid.appendChild(fragment);
         }
 
-        // Apply Filters
         function filterDataList(data) {
-            const searchValue = document.getElementById('filter-search').value.toLowerCase().trim();
-            const teacherValue = document.getElementById('filter-teacher').value;
-            const groupValue = document.getElementById('filter-group').value;
-            const studentValue = document.getElementById('filter-student').value;
+            const searchElem = document.getElementById('filter-search');
+            const teacherElem = document.getElementById('filter-teacher');
+            const groupElem = document.getElementById('filter-group');
+            const studentElem = document.getElementById('filter-student');
+
+            const searchValue = searchElem ? searchElem.value.toLowerCase().trim() : '';
+            const teacherValue = teacherElem ? teacherElem.value : '';
+            const groupValue = groupElem ? groupElem.value : '';
+            const studentValue = studentElem ? studentElem.value : '';
 
             return data.filter(item => {
                 const searchMatch = !searchValue || 
@@ -464,50 +502,63 @@
         function applyFilters() { renderCurrentView(); }
 
         function resetFilters() {
-            document.getElementById('filter-search').value = '';
-            document.getElementById('filter-teacher').value = '';
-            document.getElementById('filter-group').value = '';
-            document.getElementById('filter-student').value = '';
+            const searchElem = document.getElementById('filter-search');
+            const teacherElem = document.getElementById('filter-teacher');
+            const groupElem = document.getElementById('filter-group');
+            const studentElem = document.getElementById('filter-student');
+
+            if (searchElem) searchElem.value = '';
+            if (teacherElem) teacherElem.value = '';
+            if (groupElem) groupElem.value = '';
+            if (studentElem) studentElem.value = '';
             renderCurrentView();
         }
 
-        // Update Dashboard Stats
         function updateDashboardStats(allData, filteredData) {
-            document.getElementById('filter-result-count').textContent = `แสดง ${filteredData.length} รายการ`;
-            document.getElementById('stat-total').textContent = allData.length;
+            const countElem = document.getElementById('filter-result-count');
+            const totalElem = document.getElementById('stat-total');
+            const teachersElem = document.getElementById('stat-teachers');
+            const percentElem = document.getElementById('stat-percent');
+            const filesElem = document.getElementById('stat-files');
+
+            if (countElem) countElem.textContent = `แสดง ${filteredData.length} รายการ`;
+            if (totalElem) totalElem.textContent = allData.length;
             
             const uniqueTeachersSubmitted = new Set(
                 allData.map(d => (d.teacher || '').trim()).filter(t => ALL_TEACHERS.includes(t))
             ).size;
             const percentage = Math.round((uniqueTeachersSubmitted / ALL_TEACHERS.length) * 100);
 
-            document.getElementById('stat-teachers').textContent = `${uniqueTeachersSubmitted}`;
-            document.getElementById('stat-percent').textContent = `(${percentage}%)`;
+            if (teachersElem) teachersElem.textContent = `${uniqueTeachersSubmitted}`;
+            if (percentElem) percentElem.textContent = `(${percentage}%)`;
 
             const filesCount = allData.filter(d => d.fileUrl && d.fileUrl !== '-' && d.fileUrl.startsWith('http')).length;
-            document.getElementById('stat-files').textContent = filesCount;
+            if (filesElem) filesElem.textContent = filesCount;
         }
 
         function updateCounts() {
-            document.getElementById('badge-plan-count').textContent = lessonPlansData.length;
-            document.getElementById('badge-research-count').textContent = researchDataList.length;
+            const planBadge = document.getElementById('badge-plan-count');
+            const researchBadge = document.getElementById('badge-research-count');
+            if (planBadge) planBadge.textContent = lessonPlansData.length;
+            if (researchBadge) researchBadge.textContent = researchDataList.length;
         }
 
-        // Settings & Local Storage Logic
         function toggleSettingsModal() {
-            document.getElementById('settings-modal').classList.toggle('hidden');
+            const modal = document.getElementById('settings-modal');
+            if (modal) modal.classList.toggle('hidden');
         }
 
         function saveSettings() {
-            const planUrl = document.getElementById('url-plan').value.trim() || DEFAULT_PLAN_URL;
-            const researchUrl = document.getElementById('url-research').value.trim() || DEFAULT_RESEARCH_URL;
+            const planUrlElem = document.getElementById('url-plan');
+            const researchUrlElem = document.getElementById('url-research');
+
+            const planUrl = (planUrlElem && planUrlElem.value.trim()) || DEFAULT_PLAN_URL;
+            const researchUrl = (researchUrlElem && researchUrlElem.value.trim()) || DEFAULT_RESEARCH_URL;
 
             localStorage.setItem('url_plan_2569', planUrl);
             localStorage.setItem('url_research_2569', researchUrl);
 
-            fetchCSV(planUrl, 'plan');
-            fetchCSV(researchUrl, 'research');
-
+            refreshData(true);
             toggleSettingsModal();
         }
 
@@ -515,97 +566,145 @@
             const planUrl = localStorage.getItem('url_plan_2569') || DEFAULT_PLAN_URL;
             const researchUrl = localStorage.getItem('url_research_2569') || DEFAULT_RESEARCH_URL;
 
-            document.getElementById('url-plan').value = planUrl;
-            document.getElementById('url-research').value = researchUrl;
+            const planInput = document.getElementById('url-plan');
+            const researchInput = document.getElementById('url-research');
+            if (planInput) planInput.value = planUrl;
+            if (researchInput) researchInput.value = researchUrl;
 
-            fetchCSV(planUrl, 'plan');
-            fetchCSV(researchUrl, 'research');
-        }
+            // Try loading from local cache first for fast initial load
+            const cachedPlan = localStorage.getItem(CACHE_KEY_PLAN);
+            const cachedResearch = localStorage.getItem(CACHE_KEY_RESEARCH);
+            const cachedTime = localStorage.getItem(CACHE_KEY_TIME);
 
-        // Fetch & Parse CSV from Published Google Sheets
-        async function fetchCSV(url, type) {
-            try {
-                // Add timestamp cache-buster for real-time synchronization
-                const cacheBustUrl = url + (url.includes('?') ? '&' : '?') + 't=' + new Date().getTime();
-                const response = await fetch(cacheBustUrl);
-                if (!response.ok) throw new Error('HTTP error');
-                const data = await response.text();
-                const parsed = parseCSV(data, type);
-                
-                if (type === 'plan') {
-                    lessonPlansData = parsed;
-                } else {
-                    researchDataList = parsed;
-                }
-                
-                updateCounts();
-                renderCurrentView();
-            } catch (error) {
-                console.error("Error fetching data from URL:", url, error);
-            }
-        }
+            if (cachedPlan && cachedResearch && cachedTime) {
+                try {
+                    lessonPlansData = JSON.parse(cachedPlan);
+                    researchDataList = JSON.parse(cachedResearch);
+                    updateCounts();
+                    renderCurrentView();
+                    showStatusBanner('cache', new Date(parseInt(cachedTime)).toLocaleTimeString('th-TH'));
 
-        // Robust CSV Parser handling quotes and linebreaks
-        function parseCSV(text, type) {
-            const rows = Array.from(text.matchAll(/(?:"(?:[^"]|"")*"|[^,\r\n]*)*(?:,|\r?\n|\r)/g))
-                             .map(m => m[0]);
-            
-            let currentRow = [];
-            const parsedRows = [];
-
-            rows.forEach(cell => {
-                let isEndOfRow = false;
-                if (cell.endsWith('\n') || cell.endsWith('\r')) {
-                    isEndOfRow = true;
-                }
-                
-                let cleaned = cell.replace(/,\r?\n?$|\r?\n?$/, '');
-                if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
-                    cleaned = cleaned.slice(1, -1).replace(/""/g, '"');
-                }
-
-                currentRow.push(cleaned.trim());
-
-                if (isEndOfRow) {
-                    if (currentRow.some(val => val.length > 0)) {
-                        parsedRows.push(currentRow);
+                    // If cache is expired, background refresh
+                    if (Date.now() - parseInt(cachedTime) > CACHE_EXPIRY_MS) {
+                        refreshData(false);
                     }
-                    currentRow = [];
+                    return;
+                } catch(e) {
+                    console.error("Error parsing cache", e);
                 }
-            });
-
-            if (currentRow.length > 0 && currentRow.some(val => val.length > 0)) {
-                parsedRows.push(currentRow);
             }
 
-            if (parsedRows.length < 2) return [];
+            refreshData(true);
+        }
 
+        async function refreshData(showLoading = true) {
+            const planUrl = localStorage.getItem('url_plan_2569') || DEFAULT_PLAN_URL;
+            const researchUrl = localStorage.getItem('url_research_2569') || DEFAULT_RESEARCH_URL;
+
+            const refreshIcon = document.getElementById('refresh-icon');
+
+            if (showLoading) {
+                isLoading = true;
+                if (refreshIcon) refreshIcon.classList.add('fa-spin');
+                renderCurrentView();
+            }
+
+            showStatusBanner('loading');
+
+            try {
+                const [planRes, researchRes] = await Promise.all([
+                    fetchCSVData(planUrl),
+                    fetchCSVData(researchUrl)
+                ]);
+
+                lessonPlansData = parseCSVFast(planRes, 'plan');
+                researchDataList = parseCSVFast(researchRes, 'research');
+
+                // Update Cache
+                const now = Date.now();
+                localStorage.setItem(CACHE_KEY_PLAN, JSON.stringify(lessonPlansData));
+                localStorage.setItem(CACHE_KEY_RESEARCH, JSON.stringify(researchDataList));
+                localStorage.setItem(CACHE_KEY_TIME, now.toString());
+
+                updateCounts();
+                showStatusBanner('success', new Date(now).toLocaleTimeString('th-TH'));
+            } catch (error) {
+                console.error("Error loading CSV:", error);
+                showStatusBanner('error');
+            } finally {
+                isLoading = false;
+                if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+                renderCurrentView();
+            }
+        }
+
+        async function fetchCSVData(url) {
+            const cacheBustUrl = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+            const response = await fetch(cacheBustUrl, { cache: 'no-store' });
+            if (!response.ok) throw new Error('Network error');
+            return await response.text();
+        }
+
+        function showStatusBanner(state, timeStr = '') {
+            const banner = document.getElementById('status-banner');
+            const text = document.getElementById('status-text');
+            const cacheTime = document.getElementById('cache-time');
+            if (!banner || !text || !cacheTime) return;
+
+            banner.classList.remove('hidden', 'bg-amber-50', 'text-amber-800', 'border-amber-200', 'bg-emerald-50', 'text-emerald-800', 'border-emerald-200', 'bg-rose-50', 'text-rose-800', 'border-rose-200');
+
+            if (state === 'loading') {
+                banner.classList.add('bg-amber-50', 'text-amber-800', 'border', 'border-amber-200');
+                text.innerHTML = `<i class="fa-solid fa-sync fa-spin mr-2 text-amber-600"></i> กำลังเชื่อมต่อและอัปเดตข้อมูลล่าสุดจาก Google Sheets...`;
+                cacheTime.textContent = '';
+            } else if (state === 'cache' || state === 'success') {
+                banner.classList.add('bg-emerald-50', 'text-emerald-800', 'border', 'border-emerald-200');
+                text.innerHTML = `<i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i> ข้อมูลเรียลไทม์สมบูรณ์ (อัปเดตล่าสุด: ${timeStr} น.)`;
+                cacheTime.textContent = '';
+            } else if (state === 'error') {
+                banner.classList.add('bg-rose-50', 'text-rose-800', 'border', 'border-rose-200');
+                text.innerHTML = `<i class="fa-solid fa-circle-exclamation mr-2 text-rose-600"></i> ไม่สามารถเชื่อมต่อ Google Sheets ได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต`;
+                cacheTime.textContent = '';
+            }
+        }
+
+        // Fast & Efficient CSV Parser
+        function parseCSVFast(text, type) {
+            if (!text || text.trim().length === 0) return [];
+
+            const lines = text.split(/\r\n|\n/);
             const result = [];
-            // Skip Header row (i = 1)
-            for (let i = 1; i < parsedRows.length; i++) {
-                const cols = parsedRows[i];
-                if (cols.length >= 6) {
+
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                // Split line handling quotes
+                const cols = line.match(/(?:[^\",]+|\"[^\"]*\")+/g) || line.split(',');
+                const cleanCols = cols.map(c => c.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
+
+                if (cleanCols.length >= 6) {
                     if (type === 'plan') {
                         result.push({
-                            timestamp: cols[0] || '',
-                            teacher: cols[1] || '',
-                            group: cols[2] || '',
-                            term: cols[3] || CURRENT_TERM,
-                            studentType: cols[4] || '',
-                            subject: cols[5] || '',
-                            fileUrl: cols[6] || '',
-                            note: cols[7] || '-'
+                            timestamp: cleanCols[0] || '',
+                            teacher: cleanCols[1] || '',
+                            group: cleanCols[2] || '',
+                            term: cleanCols[3] || CURRENT_TERM,
+                            studentType: cleanCols[4] || '',
+                            subject: cleanCols[5] || '',
+                            fileUrl: cleanCols[6] || '',
+                            note: cleanCols[7] || '-'
                         });
                     } else {
                         result.push({
-                            timestamp: cols[0] || '',
-                            teacher: cols[1] || '',
-                            group: cols[2] || '',
-                            term: cols[3] || CURRENT_TERM,
-                            studentType: cols[4] || '',
-                            researchTitle: cols[5] || '',
-                            fileUrl: cols[6] || '',
-                            note: cols[7] || '-'
+                            timestamp: cleanCols[0] || '',
+                            teacher: cleanCols[1] || '',
+                            group: cleanCols[2] || '',
+                            term: cleanCols[3] || CURRENT_TERM,
+                            studentType: cleanCols[4] || '',
+                            researchTitle: cleanCols[5] || '',
+                            fileUrl: cleanCols[6] || '',
+                            note: cleanCols[7] || '-'
                         });
                     }
                 }
